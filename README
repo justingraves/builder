@@ -1,0 +1,20 @@
+Builder helps you compile projects. Its fast and easy. Written in Python, tested on Python 2.7 on a Mac with gcc/g++ 4.2 and 4.6.1
+
+Builder is fast. It supports parallel builds, precompiled headers, and only rebuilds files that actually need it. Also only links when needed. Builder can also run your app if it builds successfully, making "build-and-run" a one-liner. You'll see green text if all goes well, and bad text with error output on failures.
+
+Builder is simple. Really only one source file, and just 162 lines at present (including rubbish comments).
+
+Builder is easy. Really easy.
+E.g.:
+	Let's say you have a folder with some source files in it, and you just want to build and run them quickly:
+	python -m builder --run
+
+	The above will build any .c or .cpp files in the current path to a binary, by default called builder.out, then run it. If you change a file and run this again, only that changed file will be recompiled. Hooray for easy!
+
+	There are some options here, by the way: python -m builder --help
+
+	Want to do something more complex? See example.py. You can specify compiler, linker, include paths, library paths, force rebuilds, etc...
+
+That's about all for now. This is NOT intended to replace make! Its intended to be easy, somewhat flexible, easy, fast to compile, and easy.
+
+Enjoy!

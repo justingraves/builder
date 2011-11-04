@@ -27,13 +27,23 @@ def run_cmd(cmd, args = [], print_output = False):
 	retval = p.wait()
 	return output, retval
 
-def build_file(src_file, compile_args = [], build_dir = 'build', force_rebuild = False, compiler = 'g++', include_paths = [], library_paths = []):
+def build_file(src_file, compile_args = [], build_dir = 'build', force_rebuild = False, compiler = 'g++', include_paths = [], library_paths = [], libraries = []):
 	""" build a single source file with the given compile arguments. Only rebuilds if file changed from output (force_rebuild disables this.) """
 	build_start = time()
 
 	# If the build directory isn't an absolute path, try to make it one
-	if build_dir.strip()[0] != '/':
-		build_dir = os.getcwd() + '/' + build_dir
+	build_dir = build_dir.strip()
+
+	# Fix for build_dir being ./
+	if build_dir:
+		if build_dir[-1] == '/':
+			build_dir = build_dir[:-1]
+			if build_dir and build_dir[-1] == '.':
+				build_dir = build_dir[:-1]
+
+	
+	if not build_dir or build_dir.strip()[0] != '/':
+		build_dir = os.path.join(os.getcwd(), build_dir)
 
 	is_header = True if (src_file.endswith('.h') or src_file.endswith('.hpp')) else False
 	output_file = ''
@@ -41,7 +51,10 @@ def build_file(src_file, compile_args = [], build_dir = 'build', force_rebuild =
 		# Precompiled headers for GCC just make a .gch file next to the header
 		output_file += src_file + '.gch'
 	else:
-		output_file = build_dir + '/' + src_file[:src_file.rfind('.')] + '.o'
+		output_file = os.path.split(src_file)[1]
+		if output_file.rfind('.'):
+			output_file = output_file[:src_file.rfind('.')]
+		output_file = build_dir + '/' + output_file + '.o'
 
 	# Get file modification time for cache checks. Do this always to make sure the src file exists.
 	try:
@@ -62,7 +75,7 @@ def build_file(src_file, compile_args = [], build_dir = 'build', force_rebuild =
 			pass
 
 	# Building final extra arguments for compiler, including include and library paths
-	extra_args = [src_file,] + ['-I' + p for p in include_paths] + ['-L' + p for p in library_paths]
+	extra_args = [src_file,] + ['-I' + p for p in include_paths] + ['-L' + p for p in library_paths] + ['-l' + l for l in libraries]
 	if not is_header:
 		extra_args += ['-c', '-o', output_file]
 
@@ -71,7 +84,10 @@ def build_file(src_file, compile_args = [], build_dir = 'build', force_rebuild =
 
 	if build_result[1] != 0:
 		print '\033[1;31mBuild Failed\033[0m for', src_file, '(exit code:', str(build_result[1]) + '):'
-		print build_result[0]
+		for line in build_result[0].split('\n'):
+			if not line or line[0] == '.':
+				continue
+			print line
 		return False
 	else:
 		print '\033[1;32mBuild Succeeded\033[0m for', src_file
@@ -80,7 +96,7 @@ def build_file(src_file, compile_args = [], build_dir = 'build', force_rebuild =
 def _build_file_tuple(t):
 	return build_file(*t)
 
-def build_project(files, output_file, compile_args, build_dir = 'build', force_rebuild = False, compiler = 'g++', linker = None, include_paths = [], library_paths = [], concurrency = cpu_count(), execute = False):
+def build_project(files, output_file, compile_args = ['-O2', '-g', '-mtune=native', '-fopenmp'], link_args = None, build_dir = 'build', force_rebuild = False, compiler = 'g++', linker = None, include_paths = [], library_paths = [], concurrency = cpu_count(), execute = False, libraries = []):
 	""" Build a buncha files at once with concurrency, linking at the end. Uses build_file in parallel. """
 	build_start = time()
 
@@ -104,7 +120,14 @@ def build_project(files, output_file, compile_args, build_dir = 'build', force_r
 
 	# Compile headers first, if any
 	if header_files:
-		return_vals = Pool(concurrency).map(_build_file_tuple, [(f, compile_args, build_dir, force_rebuild, compiler, include_paths, library_paths) for f in header_files])
+		return_vals = []
+		build_args = [(f, compile_args, build_dir, force_rebuild, compiler, include_paths, library_paths, libraries) for f in header_files]
+		if concurrency == 1:
+			for args in build_args:
+				return_vals.append(_build_file_tuple(args))
+		else:
+			return_vals = Pool(concurrency).map(_build_file_tuple, build_args)
+
 		for r in return_vals:
 			if not r:
 				print 'Project build failed at headers :('
@@ -114,7 +137,14 @@ def build_project(files, output_file, compile_args, build_dir = 'build', force_r
 				needs_linking = True
 
 	# Compile source files. Uses Pool.map for concurrency
-	return_vals = Pool(concurrency).map(_build_file_tuple, [(f, compile_args + ['-H',], build_dir, force_rebuild, compiler, include_paths, library_paths) for f in src_files])
+	return_vals = []
+	build_args = [(f, compile_args + ['-H',], build_dir, force_rebuild, compiler, include_paths, library_paths, libraries) for f in src_files]
+	if concurrency == 1:
+		for args in build_args:
+			return_vals.append(_build_file_tuple(args))
+	else:
+		return_vals = Pool(concurrency).map(_build_file_tuple, build_args)
+
 	for r in return_vals:
 		if not r:
 			print 'Project build failed :('
@@ -130,12 +160,14 @@ def build_project(files, output_file, compile_args, build_dir = 'build', force_r
 	else:
 		if not linker:
 			linker = compiler
+		if not link_args:
+			link_args = compile_args
 
 		# Filenames that need linking. These were returned by the compiler. Need to link all, not just those that were recompiled!
 		link_files = [a[0] for a in return_vals]
 
 		# Execute the linker
-		link_result = run_cmd(linker, compile_args + ['-o', output_file] + link_files)
+		link_result = run_cmd(linker, link_args + ['-L' + p for p in library_paths] + ['-l' + l for l in libraries] + ['-o', output_file] + link_files)
 
 		if link_result[1] != 0:
 			print '\033[1;31mLinking Failed\033[0m (exit code:', str(link_result[1]) + '):'
@@ -154,9 +186,36 @@ def build_project(files, output_file, compile_args, build_dir = 'build', force_r
 			return False
 	return True
 	
-def all_files_of_ext(extension, path = None, exclude = []):
+def all_files_of_ext(extension, path = None, recursive = False, exclude = []):
 	""" Return all files of a certain file extension (include the .!, e.g. '.cpp') path defaults to current directory. Pass a list to exclude of substrings in files to exclude from output list. """
-	return [f for f in os.listdir(path or os.getcwd()) if f.endswith(extension) and not [e for e in exclude if e in f]]
+	files = []
+	extension = extension.lower()
+	original_path = path or os.getcwd()
+	new_paths = [original_path]
+	while new_paths:
+		current_paths = new_paths
+		new_paths = []
+		for current_path in current_paths:
+			dirlisting = os.listdir(current_path)
+			if not dirlisting:
+				continue
+			for f in dirlisting:
+				filename = f.lower()
+				f = os.path.join(current_path, f)
+				if os.path.isdir(f):
+					if recursive and f != current_path and filename[0] != '.':
+						new_paths.append(f)
+				elif os.path.splitext(f)[1].lower() == extension:
+					keep = True
+					if exclude:
+						for e in exclude:
+							if e.lower() in filename:
+								keep = False
+								break
+					if keep:
+						files.append(f)	
+
+	return files
 
 if __name__ == '__main__':
 	import __main__

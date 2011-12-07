@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 setup(
 	name='builder',
-	version='0.1',
+	version='0.2a',
 	install_requires=[],
 	author='Justin Graves',
 	author_email='justin@infegy.com',

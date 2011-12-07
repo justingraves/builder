@@ -7,6 +7,12 @@ import argparse
 from multiprocessing import Pool, cpu_count
 from time import time
 
+class CompileError(Exception):
+	def __init__(self, value):
+		self.value = value
+	def __str__(self):
+		return self.value
+
 def run_cmd(cmd, args = [], print_output = False):
 	""" Run a shell command. Pass a list of args if needed. print_output will print output as the program spits it to stdout.
 	Returns a tuple of (program_output, exit_code) """
@@ -84,12 +90,23 @@ def build_file(src_file, compile_args = [], build_dir = 'build', force_rebuild =
 
 	if build_result[1] != 0:
 		print '\033[1;31mBuild Failed\033[0m for', src_file, '(exit code:', str(build_result[1]) + '):'
-		for line in build_result[0].split('\n'):
-			if not line or line[0] == '.':
+		error = ''
+		for line in build_result[0].split("\n"):
+			if not line or line.strip().startswith('.') or ': note:' in line:
 				continue
+			if line.startswith('Multiple include guards'):
+				break
+			if error: error += "\n"
+			error += line
 			print line
+		#raise CompileError(error)
 		return False
 	else:
+		if build_result[0]:
+			for line in build_result[0].split("\n"):
+				if not line or line.strip().startswith('.') or ': note:' in line: continue
+				if line.startswith('Multiple include guards'): break
+				print line
 		print '\033[1;32mBuild Succeeded\033[0m for', src_file
 		return output_file, True
 

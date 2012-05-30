@@ -184,7 +184,7 @@ def build_project(files, output_file, compile_args = ['-O2', '-g', '-mtune=nativ
 		link_files = [a[0] for a in return_vals]
 
 		# Execute the linker
-		link_result = run_cmd(linker, link_args + ['-L' + p for p in library_paths] + ['-l' + l for l in libraries] + ['-o', output_file] + link_files)
+		link_result = run_cmd(linker, link_args + link_files + ['-L' + p for p in library_paths] + ['-l' + l for l in libraries] + ['-o', output_file])
 
 		if link_result[1] != 0:
 			print '\033[1;31mLinking Failed\033[0m (exit code:', str(link_result[1]) + '):'

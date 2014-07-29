@@ -6,4 +6,5 @@ setup(
 	author='Justin Graves',
 	author_email='justin@infegy.com',
 	packages=find_packages(),
+	zip_safe=False
 	)

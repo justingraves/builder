@@ -113,7 +113,7 @@ def build_file(src_file, compile_args = [], build_dir = 'build', force_rebuild =
 def _build_file_tuple(t):
 	return build_file(*t)
 
-def build_project(files, output_file, compile_args = ['-O2', '-g', '-mtune=native', '-fopenmp'], link_args = None, build_dir = 'build', force_rebuild = False, compiler = 'g++', linker = None, include_paths = [], library_paths = [], concurrency = cpu_count(), execute = False, libraries = []):
+def build_project(files, output_file, compile_args = ['-O3', '-g', '-mtune=native', '-fopenmp'], link_args = None, build_dir = 'build', force_rebuild = False, compiler = 'g++', linker = None, include_paths = [], library_paths = [], concurrency = cpu_count(), execute = False, libraries = []):
 	""" Build a buncha files at once with concurrency, linking at the end. Uses build_file in parallel. """
 	build_start = time()
 
@@ -135,23 +135,29 @@ def build_project(files, output_file, compile_args = ['-O2', '-g', '-mtune=nativ
 
 	needs_linking = False
 
-	# Compile headers first, if any
-	if header_files:
-		return_vals = []
-		build_args = [(f, compile_args, build_dir, force_rebuild, compiler, include_paths, library_paths, libraries) for f in header_files]
-		if concurrency == 1:
-			for args in build_args:
-				return_vals.append(_build_file_tuple(args))
-		else:
-			return_vals = Pool(concurrency).map(_build_file_tuple, build_args)
+	# Check if headers were modified since last build
+	# To determine last build, we look at .o files in the build dir
+	if header_files and not force_rebuild:
+		src_check = set(os.path.split(f)[1] for f in src_files)
+		last_build_time = 0.0
 
-		for r in return_vals:
-			if not r:
-				print 'Project build failed at headers :('
-				return False
-			if r[1]:
-				# If any files actually were built, we need to link again
-				needs_linking = True
+		# Find last build time by looking at .o files
+		for f in os.listdir(build_dir):
+			if f.lower().endswith('.o'):
+				if f[:-2] in src_check:
+					full_f = os.path.join(build_dir, f)
+					last_build_time = max(os.stat(full_f).st_mtime, last_build_time)
+
+		# Find last header mod time
+		last_header_mod = 0.0
+		for f in header_files:
+			last_header_mod = max(os.stat(f).st_mtime, last_header_mod)
+
+		# If headers were modified since last build, force a rebuild
+		# This could only build files the header affects, but that is much, much more complex to implement
+		if last_header_mod - last_build_time > 0:
+			print 'Forcing rebuild due to header modification since last build'
+			force_rebuild = True
 
 	# Compile source files. Uses Pool.map for concurrency
 	return_vals = []
